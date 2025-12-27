@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 # === CONFIG ===
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "YOUR_API_KEY_HERE")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "sk-xxxxx")  # Replace with your actual key or use .env file
 
 # Hardware ports (Mac/Pi)
 ARDUINO_PORT = "/dev/cu.usbmodem11401"  # Mac - UPDATE THIS!
