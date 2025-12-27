@@ -2,6 +2,8 @@
 RUFUS ROBOT - ARDUINO UNO SERVO + VS1053 CONTROLLER
 Hardware: 3x SG90 servos + VS1053 MP3 decoder + SD card
 Serial Commands: yes, no, neutral, PLAY, head_X, left_arm_X, right_arm_X
+
+Copy this code to Arduino IDE and upload to Arduino Uno
 */
 
 #include <Servo.h>

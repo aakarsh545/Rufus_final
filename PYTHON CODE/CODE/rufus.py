@@ -1,12 +1,8 @@
 """
 🤖 RUFUS AI ROBOT - COMPLETE WORKING VERSION (Mac/Pi)
-GPT-5-nano + Whisper STT + TTS + Arduino Gestures + AI Movements + Idle Animations
+GPT-4o-mini + Whisper STT + TTS + Arduino Gestures + AI Movements + Idle Animations
 
-FIXED VERSION:
-- Added background idle animation thread (random movements every 8-15s)
-- Fixed conversation memory and /clear command
-- Improved TTS playback timing
-- Better servo movement coordination
+Copy this code and run it with: python rufus.py
 """
 
 import time, serial, subprocess, os, random, io, threading
@@ -27,7 +23,7 @@ ARDUINO_PORT = "/dev/cu.usbmodem11401"  # Mac - UPDATE THIS!
 TTS_MODEL = "tts-1"
 VOICE = "echo"  # Deep robot voice (options: alloy, echo, fable, onyx, nova, shimmer)
 WHISPER_MODEL = "whisper-1"
-CHAT_MODEL = "gpt-4o-mini"  # Using gpt-4o-mini (fast, similar to gpt-5-nano concept)
+CHAT_MODEL = "gpt-4o-mini"  # Fast and capable
 ANSWER_MP3 = "rufus_tts.mp3"
 RECORD_WAV = "input_5s.wav"
 
