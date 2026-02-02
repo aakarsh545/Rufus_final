@@ -10,6 +10,7 @@ from flask_cors import CORS
 import serial
 import time
 import os
+import json
 from openai import OpenAI
 from dotenv import load_dotenv
 import pygame
@@ -24,6 +25,44 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # Initialize OpenAI
 client = OpenAI(api_key=OPENAI_API_KEY)
+
+# AI Settings
+CHAT_MODEL = "gpt-4o-mini"
+TTS_MODEL = "tts-1"
+VOICE = "onyx"
+MAX_TURNS = 10
+
+# System prompt for GPT-4o-mini
+SYSTEM_PROMPT = """You are Rufus, a friendly, playful AI robot companion with a physical body.
+
+IMPORTANT: You must respond with valid JSON in this exact format:
+{
+  "speech": "your full conversational response (detailed, friendly, 2-4 sentences)",
+  "gesture": "yes|no|neutral"
+}
+
+GESTURE RULES:
+- Analyze the USER'S INPUT and summarize it to: YES, NO, or NEUTRAL
+- "yes" = User said something positive, agreeing, asking "yes" questions, greeting
+- "no" = User said something negative, disagreeing, asking "no" questions
+- "neutral" = Everything else (questions, statements, confusion, etc.)
+
+Give FULL, detailed responses:
+- Explain things thoroughly
+- Be conversational and friendly
+- Don't be too brief - expand on your answers
+- Show enthusiasm and personality
+- Use 2-4 sentences typically, more if needed
+
+Examples:
+User: "Hello!" → {"speech": "Well hello there! It's absolutely wonderful to see you! I'm Rufus, your friendly AI robot companion, and I'm really excited we get to chat today. How can I help you?", "gesture": "yes"}
+
+User: "Are you a robot?" → {"speech": "I sure am! I'm Rufus, a friendly AI robot companion made with cardboard and servos. I love having conversations and helping out however I can. It's pretty cool being a robot!", "gesture": "neutral"}
+
+Be warm, friendly, and give thorough, detailed answers!"""
+
+# Conversation memory
+conversation_history = []
 
 # Arduino serial setup
 ARDUINO_PORT = "/dev/ttyACM0"
@@ -122,8 +161,8 @@ def speak_text(text):
     """Convert text to speech and play"""
     try:
         response = client.audio.speech.create(
-            model="tts-1",
-            voice="onyx",
+            model=TTS_MODEL,
+            voice=VOICE,
             input=text,
             response_format="wav"
         )
@@ -141,6 +180,64 @@ def speak_text(text):
     except Exception as e:
         print(f"❌ TTS failed: {e}")
         return False
+
+def add_to_memory(role, content):
+    """Add message to conversation memory"""
+    conversation_history.append({"role": role, "content": content})
+    # Keep only last MAX_TURNS exchanges
+    if len(conversation_history) > MAX_TURNS * 2 + 1:
+        conversation_history[:] = conversation_history[-(MAX_TURNS * 2 + 1):]
+
+def get_ai_response(user_message):
+    """Get response from GPT-4o-mini with structured output"""
+    print(f"\n🧠 User: {user_message}")
+
+    add_to_memory("user", user_message)
+
+    # Build messages with system prompt
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + conversation_history
+
+    try:
+        response = client.chat.completions.create(
+            model=CHAT_MODEL,
+            messages=messages,
+            max_tokens=500,
+            temperature=0.8,
+            response_format={"type": "json_object"}
+        )
+
+        response_text = response.choices[0].message.content.strip()
+
+        # Parse JSON response
+        response_data = json.loads(response_text)
+
+        speech = response_data.get("speech", "")
+        gesture = response_data.get("gesture", "neutral")
+
+        # Add AI's speech to memory
+        add_to_memory("assistant", speech)
+
+        print(f"🤖 Rufus: {speech}")
+        print(f"⚙️  Gesture: {gesture}")
+
+        return speech, gesture
+
+    except json.JSONDecodeError as e:
+        print(f"❌ Failed to parse AI's JSON: {e}")
+        return "I'm having trouble processing that right now.", "neutral"
+
+    except Exception as e:
+        print(f"❌ OpenAI API failed: {e}")
+        return "Something went wrong. Can you try again?", "neutral"
+
+def execute_gesture(gesture):
+    """Execute gesture (yes/nod, no/shake, neutral/rest)"""
+    if not gesture or gesture == "neutral":
+        perform_gesture("rest")
+    elif gesture == "yes":
+        perform_gesture("nod")
+    elif gesture == "no":
+        perform_gesture("shake")
 
 # ==================== API ENDPOINTS ====================
 
@@ -186,22 +283,33 @@ def text_to_speech():
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
-    """AI chat with gesture"""
+    """AI chat with gesture and TTS"""
     data = request.json
     user_message = data.get('message')
 
     if not user_message:
         return jsonify({'success': False, 'error': 'No message provided'})
 
-    # Import the chat logic from voice_stt_tts_fixed.py
-    # For now, return a simple response
-    response = f"You said: {user_message}"
-    gesture = "neutral"
+    # Get AI response
+    response_text, gesture = get_ai_response(user_message)
+
+    # Execute gesture
+    execute_gesture(gesture)
+
+    # Speak the response
+    speak_text(response_text)
+
+    # Map gesture for web interface
+    gesture_map = {
+        "yes": "nod",
+        "no": "shake",
+        "neutral": "rest"
+    }
 
     return jsonify({
         'success': True,
-        'response': response,
-        'gesture': gesture
+        'response': response_text,
+        'gesture': gesture_map.get(gesture, "rest")
     })
 
 if __name__ == '__main__':
