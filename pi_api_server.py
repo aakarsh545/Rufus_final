@@ -15,6 +15,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import pygame
 import tempfile
+import subprocess
 
 app = Flask(__name__)
 CORS(app)  # Allow requests from Vercel
@@ -311,6 +312,83 @@ def chat():
         'response': response_text,
         'gesture': gesture_map.get(gesture, "rest")
     })
+
+@app.route('/api/voice-chat', methods=['POST'])
+def voice_chat():
+    """Full voice conversation: Record → STT → AI → TTS → Play"""
+    if 'audio' not in request.files:
+        return jsonify({'success': False, 'error': 'No audio file provided'})
+
+    audio_file = request.files['audio']
+
+    # Save uploaded audio
+    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
+        webm_path = f.name
+        audio_file.save(webm_path)
+
+    # Convert webm to wav using ffmpeg
+    wav_path = webm_path.replace('.webm', '.wav')
+    try:
+        subprocess.run([
+            'ffmpeg', '-i', webm_path,
+            '-ar', '16000',  # Sample rate for Whisper
+            '-ac', '1',       # Mono
+            wav_path,
+            '-y',             # Overwrite output file
+            '-loglevel', 'error'  # Only show errors
+        ], check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        os.unlink(webm_path)
+        return jsonify({'success': False, 'error': f'Audio conversion failed: {e.stderr.decode()}'})
+
+    # Transcribe with Whisper
+    try:
+        with open(wav_path, "rb") as f:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=f
+            )
+        user_text = transcript.text.strip()
+        print(f"🎤 Transcribed: '{user_text}'")
+
+        # Clean up audio files
+        os.unlink(webm_path)
+        os.unlink(wav_path)
+
+        if not user_text:
+            return jsonify({'success': False, 'error': 'No speech detected'})
+
+        # Get AI response
+        response_text, gesture = get_ai_response(user_text)
+
+        # Execute gesture
+        execute_gesture(gesture)
+
+        # Speak the response
+        speak_text(response_text)
+
+        # Map gesture for web interface
+        gesture_map = {
+            "yes": "nod",
+            "no": "shake",
+            "neutral": "rest"
+        }
+
+        return jsonify({
+            'success': True,
+            'transcript': user_text,
+            'response': response_text,
+            'gesture': gesture_map.get(gesture, "rest")
+        })
+
+    except Exception as e:
+        # Clean up audio files on error
+        if os.path.exists(webm_path):
+            os.unlink(webm_path)
+        if os.path.exists(wav_path):
+            os.unlink(wav_path)
+        print(f"❌ Voice chat failed: {e}")
+        return jsonify({'success': False, 'error': str(e)})
 
 if __name__ == '__main__':
     print("🌐 Rufus Pi API Server")
