@@ -5,3 +5,5 @@ flask>=3.0.0
 flask-cors>=4.0.0
 pygame>=2.5.0
 pyserial>=3.5
+sounddevice>=0.4.6
+soundfile>=0.12.1

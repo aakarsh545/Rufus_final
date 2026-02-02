@@ -15,7 +15,8 @@ from openai import OpenAI
 from dotenv import load_dotenv
 import pygame
 import tempfile
-import subprocess
+import sounddevice as sd
+import soundfile as sf
 
 app = Flask(__name__)
 CORS(app)  # Allow requests from Vercel
@@ -32,6 +33,11 @@ CHAT_MODEL = "gpt-4o-mini"
 TTS_MODEL = "tts-1"
 VOICE = "onyx"
 MAX_TURNS = 10
+
+# Audio recording settings
+SAMPLE_RATE = 16000
+DURATION_SEC = 5
+RECORD_WAV = "temp_recording.wav"
 
 # System prompt for GPT-4o-mini
 SYSTEM_PROMPT = """You are Rufus, a friendly, playful AI robot companion with a physical body.
@@ -315,45 +321,35 @@ def chat():
 
 @app.route('/api/voice-chat', methods=['POST'])
 def voice_chat():
-    """Full voice conversation: Record → STT → AI → TTS → Play"""
-    if 'audio' not in request.files:
-        return jsonify({'success': False, 'error': 'No audio file provided'})
+    """Full voice conversation: Record → STT → AI → TTS → Play (records on Pi)"""
+    print(f"\n🎤 Recording for {DURATION_SEC} seconds...")
 
-    audio_file = request.files['audio']
-
-    # Save uploaded audio
-    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as f:
-        webm_path = f.name
-        audio_file.save(webm_path)
-
-    # Convert webm to wav using ffmpeg
-    wav_path = webm_path.replace('.webm', '.wav')
     try:
-        subprocess.run([
-            'ffmpeg', '-i', webm_path,
-            '-ar', '16000',  # Sample rate for Whisper
-            '-ac', '1',       # Mono
-            wav_path,
-            '-y',             # Overwrite output file
-            '-loglevel', 'error'  # Only show errors
-        ], check=True, capture_output=True)
-    except subprocess.CalledProcessError as e:
-        os.unlink(webm_path)
-        return jsonify({'success': False, 'error': f'Audio conversion failed: {e.stderr.decode()}'})
+        # Record audio locally on Pi
+        recording = sd.rec(
+            int(DURATION_SEC * SAMPLE_RATE),
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype="int16"
+        )
+        sd.wait()  # Wait for recording to complete
 
-    # Transcribe with Whisper
-    try:
-        with open(wav_path, "rb") as f:
+        # Save to temp file
+        sf.write(RECORD_WAV, recording, SAMPLE_RATE)
+        print("✅ Recording complete")
+
+        # Transcribe with Whisper
+        print("📝 Transcribing...")
+        with open(RECORD_WAV, "rb") as f:
             transcript = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=f
             )
         user_text = transcript.text.strip()
-        print(f"🎤 Transcribed: '{user_text}'")
+        print(f"✅ You said: '{user_text}'")
 
-        # Clean up audio files
-        os.unlink(webm_path)
-        os.unlink(wav_path)
+        # Clean up temp file
+        os.unlink(RECORD_WAV)
 
         if not user_text:
             return jsonify({'success': False, 'error': 'No speech detected'})
@@ -382,11 +378,9 @@ def voice_chat():
         })
 
     except Exception as e:
-        # Clean up audio files on error
-        if os.path.exists(webm_path):
-            os.unlink(webm_path)
-        if os.path.exists(wav_path):
-            os.unlink(wav_path)
+        # Clean up temp file on error
+        if os.path.exists(RECORD_WAV):
+            os.unlink(RECORD_WAV)
         print(f"❌ Voice chat failed: {e}")
         return jsonify({'success': False, 'error': str(e)})
 
