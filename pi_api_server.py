@@ -126,27 +126,53 @@ def init_arduino():
     global arduino
     try:
         arduino = serial.Serial(ARDUINO_PORT, ARDUINO_BAUD, timeout=1)
-        time.sleep(2)
-        while arduino.in_waiting > 0:
-            response = arduino.readline().decode('utf-8').strip()
-            if response == "READY":
-                print("✅ Arduino connected!")
-                return True
-        return True
+        time.sleep(2)  # Wait for Arduino to reset and send READY
+
+        # Read all available data and look for READY
+        ready = False
+        start_time = time.time()
+        while time.time() - start_time < 3:  # Wait up to 3 seconds
+            if arduino.in_waiting > 0:
+                response = arduino.readline().decode('utf-8').strip()
+                print(f"📩 Arduino says: {response}")
+                if response == "READY":
+                    ready = True
+                    break
+            time.sleep(0.1)
+
+        if ready:
+            print("✅ Arduino connected successfully!")
+            return True
+        else:
+            print("⚠️  Arduino connected but didn't receive READY signal")
+            print("   Servo commands may not work properly")
+            return True  # Still continue anyway
     except Exception as e:
-        print(f"⚠️  Arduino not connected: {e}")
+        print(f"❌ Arduino not connected: {e}")
+        print("   Servo control will not work")
+        arduino = None
         return False
 
 def send_servo_command(pin, angle):
     """Send servo command to Arduino"""
     global arduino
     if not arduino or not arduino.is_open:
+        print(f"❌ Arduino not connected - cannot send command to pin {pin}")
         return False
     try:
         command = f"{pin}:{angle}\n"
+        print(f"📤 Sending: {command.strip()}")
         arduino.write(command.encode('utf-8'))
         time.sleep(0.05)
-        return True
+
+        # Read acknowledgment
+        if arduino.in_waiting > 0:
+            ack = arduino.readline().decode('utf-8').strip()
+            print(f"📥 Arduino ACK: {ack}")
+            return ack.startswith("OK")
+        else:
+            print("⚠️  No acknowledgment from Arduino")
+            return True  # Assume it worked anyway
     except Exception as e:
         print(f"❌ Servo command failed: {e}")
         return False
